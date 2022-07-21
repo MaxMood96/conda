@@ -8,10 +8,9 @@ import sys
 
 from enum import Enum
 
-from .._vendor.auxlib.decorators import classproperty
-from .._vendor.auxlib.ish import dals
-from .._vendor.auxlib.type_coercion import TypeCoercionError, boolify
-from ..common.compat import string_types
+from ..auxlib.decorators import classproperty
+from ..auxlib.ish import dals
+from ..auxlib.type_coercion import TypeCoercionError, boolify
 from ..exceptions import CondaUpgradeError
 
 
@@ -167,7 +166,7 @@ class NoarchType(Enum):
             return valtype
         if isinstance(val, bool):
             val = NoarchType.generic if val else None
-        if isinstance(val, string_types):
+        if isinstance(val, str):
             val = val.lower()
             if val == 'python':
                 val = NoarchType.python

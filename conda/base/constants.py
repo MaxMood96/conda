@@ -14,7 +14,7 @@ from enum import Enum, EnumMeta
 from os.path import join
 import struct
 
-from ..common.compat import itervalues, on_win, six_with_metaclass, string_types
+from ..common.compat import on_win, six_with_metaclass
 
 PREFIX_PLACEHOLDER = ('/opt/anaconda1anaconda2'
                       # this is intentionally split into parts, such that running
@@ -45,6 +45,12 @@ SEARCH_PATH += (
     '$CONDA_ROOT/.condarc',
     '$CONDA_ROOT/condarc',
     '$CONDA_ROOT/condarc.d/',
+    '$XDG_CONFIG_HOME/conda/.condarc',
+    '$XDG_CONFIG_HOME/conda/condarc',
+    '$XDG_CONFIG_HOME/conda/condarc.d/',
+    '~/.config/conda/.condarc',
+    '~/.config/conda/condarc',
+    '~/.config/conda/condarc.d/',
     '~/.conda/.condarc',
     '~/.conda/condarc',
     '~/.conda/condarc.d/',
@@ -146,10 +152,23 @@ CONDA_PACKAGE_EXTENSIONS = (
 )
 CONDA_TARBALL_EXTENSION = CONDA_PACKAGE_EXTENSION_V1  # legacy support for conda-build; remove this line  # NOQA
 CONDA_TEMP_EXTENSION = '.c~'
+CONDA_TEMP_EXTENSIONS = (CONDA_TEMP_EXTENSION, ".trash")
+CONDA_LOGS_DIR = ".logs"
 
 UNKNOWN_CHANNEL = "<unknown>"
-REPODATA_FN = 'repodata.json'
+REPODATA_FN = "repodata.json"
 
+#: Default name of the notices file on the server we look for
+NOTICES_FN = "notices.json"
+
+#: Name of cache file where read notice IDs are stored
+NOTICES_CACHE_FN = "notices.cache"
+
+#: Determines the subdir for notices cache
+NOTICES_CACHE_SUBDIR = "notices"
+
+DRY_RUN_PREFIX = "Dry run action:"
+PREFIX_NAME_DISALLOWED_CHARS = {"/", " ", ":", "#"}
 
 # TODO: Determine whether conda.base is the right place for this data; it
 # should be a constant, but another module may be more appropriate.
@@ -249,8 +268,8 @@ class ChannelPriorityMeta(EnumMeta):
         try:
             return super(ChannelPriorityMeta, cls).__call__(value, *args, **kwargs)
         except ValueError:
-            if isinstance(value, string_types):
-                from .._vendor.auxlib.type_coercion import typify
+            if isinstance(value, str):
+                from ..auxlib.type_coercion import typify
                 value = typify(value)
             if value is True:
                 value = 'flexible'
@@ -259,7 +278,14 @@ class ChannelPriorityMeta(EnumMeta):
             return super(ChannelPriorityMeta, cls).__call__(value, *args, **kwargs)
 
 
-class ChannelPriority(six_with_metaclass(ChannelPriorityMeta, Enum)):
+class ValueEnum(Enum):
+    """Subclass of enum that returns the value of the enum as its str representation"""
+
+    def __str__(self):
+        return f"{self.value}"
+
+
+class ChannelPriority(six_with_metaclass(ChannelPriorityMeta, ValueEnum)):
     __name__ = "ChannelPriority"
 
     STRICT = 'strict'
@@ -267,17 +293,23 @@ class ChannelPriority(six_with_metaclass(ChannelPriorityMeta, Enum)):
     FLEXIBLE = 'flexible'
     DISABLED = 'disabled'
 
-    def __str__(self):
-        return self.value
 
-
-class SatSolverChoice(Enum):
+class SatSolverChoice(ValueEnum):
     PYCOSAT = 'pycosat'
     PYCRYPTOSAT = 'pycryptosat'
     PYSAT = 'pysat'
 
-    def __str__(self):
-        return self.value
+
+class ExperimentalSolverChoice(ValueEnum):
+    CLASSIC = 'classic'
+    LIBMAMBA = 'libmamba'
+    LIBMAMBA_DRAFT = 'libmamba-draft'
+
+
+class NoticeLevel(ValueEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
 
 
 # Magic files for permissions determination
@@ -310,7 +342,7 @@ NAMESPACES_MAP = {  # base package name, namespace
 }
 
 NAMESPACE_PACKAGE_NAMES = frozenset(NAMESPACES_MAP)
-NAMESPACES = frozenset(itervalues(NAMESPACES_MAP))
+NAMESPACES = frozenset(NAMESPACES_MAP.values())
 
 # Namespace arbiters of uniqueness
 #  global: some repository established by Anaconda, Inc. and conda-forge

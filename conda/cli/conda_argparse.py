@@ -3,8 +3,15 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-from argparse import (ArgumentParser as ArgumentParserBase, REMAINDER, RawDescriptionHelpFormatter,
-                      SUPPRESS, _CountAction, _HelpAction)
+from argparse import (
+    ArgumentParser as ArgumentParserBase,
+    REMAINDER,
+    RawDescriptionHelpFormatter,
+    SUPPRESS,
+    Action,
+    _CountAction,
+    _HelpAction,
+)
 from logging import getLogger
 import os
 from os.path import abspath, expanduser, join
@@ -13,7 +20,9 @@ import sys
 from textwrap import dedent
 
 from .. import __version__
-from ..base.constants import COMPATIBLE_SHELLS, CONDA_HOMEPAGE_URL, DepsModifier, UpdateModifier
+from ..auxlib.ish import dals
+from ..base.constants import COMPATIBLE_SHELLS, CONDA_HOMEPAGE_URL, DepsModifier, \
+    UpdateModifier, ExperimentalSolverChoice
 from ..common.constants import NULL
 
 log = getLogger(__name__)
@@ -58,18 +67,19 @@ def generate_parser():
     configure_parser_compare(sub_parsers)
     configure_parser_config(sub_parsers)
     configure_parser_create(sub_parsers)
-    configure_parser_help(sub_parsers)
     configure_parser_info(sub_parsers)
     configure_parser_init(sub_parsers)
     configure_parser_install(sub_parsers)
     configure_parser_list(sub_parsers)
     configure_parser_package(sub_parsers)
     configure_parser_remove(sub_parsers)
-    configure_parser_remove(sub_parsers, name='uninstall')
+    configure_parser_rename(sub_parsers)
     configure_parser_run(sub_parsers)
     configure_parser_search(sub_parsers)
+    configure_parser_remove(sub_parsers, name="uninstall")
     configure_parser_update(sub_parsers)
     configure_parser_update(sub_parsers, name='upgrade')
+    configure_parser_notices(sub_parsers)
 
     return p
 
@@ -195,6 +205,39 @@ class NullCountAction(_CountAction):
         setattr(namespace, self.dest, new_count)
 
 
+class ExtendConstAction(Action):
+    # a derivative of _AppendConstAction and Python 3.8's _ExtendAction
+    def __init__(
+        self,
+        option_strings,
+        dest,
+        const,
+        default=None,
+        type=None,
+        choices=None,
+        required=False,
+        help=None,
+        metavar=None,
+    ):
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            nargs="*",
+            const=const,
+            default=default,
+            type=type,
+            choices=choices,
+            required=required,
+            help=help,
+            metavar=metavar,
+        )
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = getattr(namespace, self.dest, None)
+        items = [] if items is None else items[:]
+        items.extend(values or [self.const])
+        setattr(namespace, self.dest, items)
+
 # #############################################################################################
 #
 # sub-parsers
@@ -236,13 +279,6 @@ def configure_parser_clean(sub_parsers):
              "symlinks back to the package cache.",
     )
     removal_target_options.add_argument(
-        '-s', '--source-cache',
-        action='store_true',
-        # help="Remove files from the source cache of conda build.",
-        help=SUPPRESS,
-        # TODO: Deprecation warning issued. Remove in future release.
-    )
-    removal_target_options.add_argument(
         "-t", "--tarballs",
         action="store_true",
         help="Remove cached package tarballs.",
@@ -255,10 +291,18 @@ def configure_parser_clean(sub_parsers):
              "back to the package cache.",
     )
     removal_target_options.add_argument(
-        "-c", "--tempfiles",
-        nargs="+",
+        "-c",  # for tempfile extension (.c~)
+        "--tempfiles",
+        const=sys.prefix,
+        action=ExtendConstAction,
         help=("Remove temporary files that could not be deleted earlier due to being in-use.  "
               "Argument is path(s) to prefix(es) where files should be found and removed."),
+    )
+    removal_target_options.add_argument(
+        "-l",
+        "--logfiles",
+        action="store_true",
+        help="Remove log files.",
     )
 
     add_output_and_prompt_options(p)
@@ -535,8 +579,11 @@ def configure_parser_create(sub_parsers):
         help='Path to (or name of) existing local environment.',
         metavar='ENV',
     )
-    solver_mode_options, package_install_options = add_parser_create_install_update(p)
+    solver_mode_options, package_install_options = add_parser_create_install_update(
+        p, prefix_required=True
+    )
     add_parser_default_packages(solver_mode_options)
+    add_parser_experimental_solver(solver_mode_options)
     p.add_argument(
         '-m', "--mkdir",
         action="store_true",
@@ -555,27 +602,29 @@ def configure_parser_create(sub_parsers):
 
 
 def configure_parser_init(sub_parsers):
-    help = "Initialize conda for shell interaction. [Experimental]"
+    help = "Initialize conda for shell interaction."
     descr = help
 
-    epilog = dedent("""
-    Key parts of conda's functionality require that it interact directly with the shell
-    within which conda is being invoked. The `conda activate` and `conda deactivate` commands
-    specifically are shell-level commands. That is, they affect the state (e.g. environment
-    variables) of the shell context being interacted with. Other core commands, like
-    `conda create` and `conda install`, also necessarily interact with the shell environment.
-    They're therefore implemented in ways specific to each shell. Each shell must be configured
-    to make use of them.
+    epilog = dals(
+        """
+        Key parts of conda's functionality require that it interact directly with the shell
+        within which conda is being invoked. The `conda activate` and `conda deactivate` commands
+        specifically are shell-level commands. That is, they affect the state (e.g. environment
+        variables) of the shell context being interacted with. Other core commands, like
+        `conda create` and `conda install`, also necessarily interact with the shell environment.
+        They're therefore implemented in ways specific to each shell. Each shell must be configured
+        to make use of them.
 
-    This command makes changes to your system that are specific and customized for each shell.
-    To see the specific files and locations on your system that will be affected before, use the
-    '--dry-run' flag.  To see the exact changes that are being or will be made to each location,
-    use the '--verbose' flag.
+        This command makes changes to your system that are specific and customized for each shell.
+        To see the specific files and locations on your system that will be affected before, use
+        the '--dry-run' flag.  To see the exact changes that are being or will be made to each
+        location, use the '--verbose' flag.
 
-    IMPORTANT: After running `conda init`, most shells will need to be closed and restarted
-               for changes to take effect.
+        IMPORTANT: After running `conda init`, most shells will need to be closed and restarted for
+        changes to take effect.
 
-    """)
+        """
+    )
 
     # dev_example = dedent("""
     #     # An example for creating an environment to develop on conda's own code. Clone the
@@ -627,22 +676,19 @@ def configure_parser_init(sub_parsers):
     setup_type_group.add_argument(
         "--user",
         action="store_true",
-        # help="Initialize conda for the current user (default).",
-        help=SUPPRESS,
+        help="Initialize conda for the current user (default).",
         default=NULL,
     )
     setup_type_group.add_argument(
         "--no-user",
         action="store_false",
-        # help="Don't initialize conda for the current user (default).",
-        help=SUPPRESS,
+        help="Don't initialize conda for the current user (default).",
         default=NULL,
     )
     setup_type_group.add_argument(
         "--system",
         action="store_true",
-        # help="Initialize conda for all users on the system.",
-        help=SUPPRESS,
+        help="Initialize conda for all users on the system.",
         default=NULL,
     )
     setup_type_group.add_argument(
@@ -676,24 +722,6 @@ def configure_parser_init(sub_parsers):
         help="Only display what would have been done.",
     )
     p.set_defaults(func='.main_init.execute')
-
-
-def configure_parser_help(sub_parsers):
-    descr = "Displays a list of available conda commands and their help strings."
-
-    p = sub_parsers.add_parser(
-        'help',
-        description=descr,
-        help=descr,
-    )
-    p.add_argument(
-        'command',
-        metavar='COMMAND',
-        action="store",
-        nargs='?',
-        help="Print help information for COMMAND (same as: conda COMMAND --help).",
-    )
-    p.set_defaults(func='.main_help.execute')
 
 
 def configure_parser_install(sub_parsers):
@@ -743,6 +771,7 @@ def configure_parser_install(sub_parsers):
     solver_mode_options, package_install_options = add_parser_create_install_update(p)
 
     add_parser_prune(solver_mode_options)
+    add_parser_experimental_solver(solver_mode_options)
     solver_mode_options.add_argument(
         "--force-reinstall",
         action="store_true",
@@ -782,19 +811,19 @@ def configure_parser_list(sub_parsers):
     examples = dedent("""
     Examples:
 
-    List all packages in the current environment:
+    List all packages in the current environment::
 
         conda list
 
-    List all packages installed into the environment 'myenv':
+    List all packages installed into the environment 'myenv'::
 
         conda list -n myenv
 
-    Save packages for future use:
+    Save packages for future use::
 
         conda list --export > package-list.txt
 
-    Reinstall packages from an export file:
+    Reinstall packages from an export file::
 
         conda create -n myenv --file package-list.txt
 
@@ -857,6 +886,7 @@ def configure_parser_list(sub_parsers):
     )
     p.set_defaults(func='.main_list.execute')
 
+
 def configure_parser_compare(sub_parsers):
     descr = "Compare packages between conda environments."
 
@@ -890,6 +920,7 @@ def configure_parser_compare(sub_parsers):
         help="Path to the environment file that is to be compared against",
     )
     p.set_defaults(func='.main_compare.execute')
+
 
 def configure_parser_package(sub_parsers):
     descr = "Low-level conda package utility. (EXPERIMENTAL)"
@@ -1006,6 +1037,7 @@ def configure_parser_remove(sub_parsers, name='remove'):
         help="Ignore pinned file.",
     )
     add_parser_prune(solver_mode_options)
+    add_parser_experimental_solver(solver_mode_options)
 
     add_parser_networking(p)
     add_output_and_prompt_options(p)
@@ -1031,16 +1063,13 @@ def configure_parser_remove(sub_parsers, name='remove'):
 
 
 def configure_parser_run(sub_parsers):
-    help = "Run an executable in a conda environment. [Experimental]"
+    help = "Run an executable in a conda environment."
     descr = help + dedent("""
 
-    Use '--' (double dash) to separate CLI flags for 'conda run' from CLI flags sent to
-    the process being launched.
+    Example usage::
 
-    Example usage:
-
-        $ conda create -y -n my-python-2-env python=2
-        $ conda run -n my-python-2-env python --version
+        $ conda create -y -n my-python-env python=3
+        $ conda run -n my-python-env python --version
     """)
 
     epilog = dedent("""
@@ -1088,9 +1117,10 @@ def configure_parser_run(sub_parsers):
     )
     p.add_argument(
         "--no-capture-output",
-        help="Don't capture stdout/stderr",
-        action=NullCountAction,
-        default=NULL,
+        "--live-stream",
+        action="store_true",
+        help="Don't capture stdout/stderr.",
+        default=False,
     )
 
     p.add_argument(
@@ -1098,13 +1128,6 @@ def configure_parser_run(sub_parsers):
         nargs=REMAINDER,
         help="Executable name, with additional arguments to be passed to the executable "
              "on invocation.",
-    )
-
-    p.add_argument(
-        '--live-stream',
-        action="store_true",
-        default=False,
-        help="Display the output for the subprocess stdout and stderr on real time.",
     )
 
     p.set_defaults(func='.main_run.execute')
@@ -1258,6 +1281,7 @@ def configure_parser_update(sub_parsers, name='update'):
     solver_mode_options, package_install_options = add_parser_create_install_update(p)
 
     add_parser_prune(solver_mode_options)
+    add_parser_experimental_solver(solver_mode_options)
     solver_mode_options.add_argument(
         "--force-reinstall",
         action="store_true",
@@ -1277,14 +1301,97 @@ def configure_parser_update(sub_parsers, name='update'):
     p.set_defaults(func='.main_update.execute')
 
 
+NOTICES_HELP = "Retrieves latest channel notifications."
+NOTICES_DESCRIPTION = dals(
+    f"""
+    {NOTICES_HELP}
+
+    Conda channel maintainers have the option of setting messages that
+    users will see intermittently. Some of these notices are informational
+    while others are messages concerning the stability of the channel.
+
+    """
+)
+
+
+def configure_parser_notices(sub_parsers, name="notices"):
+    example = dals(
+        f"""
+        Examples:
+
+        conda {name}
+
+        conda {name} -c defaults
+
+        """
+    )
+    p = sub_parsers.add_parser(
+        name,
+        description=NOTICES_DESCRIPTION,
+        help=NOTICES_HELP,
+        epilog=example,
+    )
+    add_parser_channels(p)
+    p.set_defaults(func=".main_notices.execute")
+
+def configure_parser_rename(sub_parsers) -> None:
+    help = "Renames an existing environment"
+    descr = dals(
+        f"""
+        {help}
+
+        This command renames a conda environment via its name (-n/--name) or
+        its prefix (-p/--prefix).
+
+        The base environment and the currently-active environment cannot be renamed.
+        """
+    )
+
+    example = dals(
+        """
+        Examples:
+            conda rename -n test123 test321
+            conda rename --name test123 test321
+            conda rename -p path/to/test123 test321
+            conda rename --prefix path/to/test123 test321
+        """
+    )
+
+    p = sub_parsers.add_parser(
+        "rename",
+        formatter_class=RawDescriptionHelpFormatter,
+        description=descr,
+        help=help,
+        epilog=example,
+    )
+    # Add name and prefix args
+    add_parser_prefix(p)
+
+    p.add_argument("destination", help="New name for the conda environment")
+    p.add_argument(
+        "--force",
+        help="Force rename of an environment",
+        action="store_true",
+        default=False,
+    )
+    p.add_argument(
+        "-d",
+        "--dry-run",
+        help="Only display what would have been done",
+        action="store_true",
+        default=False,
+    )
+    p.set_defaults(func=".main_rename.execute")
+
+
 # #############################################################################################
 #
 # parser helpers
 #
 # #############################################################################################
 
-def add_parser_create_install_update(p):
-    add_parser_prefix(p)
+def add_parser_create_install_update(p, prefix_required=False):
+    add_parser_prefix(p, prefix_required)
     add_parser_channels(p)
     solver_mode_options = add_parser_solver_mode(p)
     package_install_options = add_parser_package_install_options(p)
@@ -1362,9 +1469,9 @@ def add_parser_help(p):
     )
 
 
-def add_parser_prefix(p):
+def add_parser_prefix(p, prefix_required=False):
     target_environment_group = p.add_argument_group("Target Environment Specification")
-    npgroup = target_environment_group.add_mutually_exclusive_group()
+    npgroup = target_environment_group.add_mutually_exclusive_group(required=prefix_required)
     npgroup.add_argument(
         '-n', "--name",
         action="store",
@@ -1463,7 +1570,7 @@ def add_parser_channels(p):
         or channels from .condarc are searched (unless --override-channels is given).  You can use
         'defaults' to get the default packages for conda.  You can also use any name and the
         .condarc channel_alias value will be prepended.  The default channel_alias
-        is http://conda.anaconda.org/.""",
+        is https://conda.anaconda.org/.""",
     )
     channel_customization_options.add_argument(
         "--use-local",
@@ -1597,6 +1704,23 @@ def add_parser_prune(p):
         action="store_true",
         default=NULL,
         help=SUPPRESS,
+    )
+
+
+def add_parser_experimental_solver(p):
+    """
+    Add a command-line flag for alternative solver backends.
+
+    See ``context.experimental_solver`` for more info.
+
+    TODO: This will be replaced by a proper plugin mechanism in the future.
+    """
+    p.add_argument(
+        "--experimental-solver",
+        dest="experimental_solver",
+        choices=[v.value for v in ExperimentalSolverChoice],
+        help="EXPERIMENTAL. Choose which solver backend to use.",
+        default=NULL,
     )
 
 

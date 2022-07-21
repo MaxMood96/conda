@@ -1,46 +1,57 @@
 # -*- coding: utf-8 -*-
+# Copyright (C) 2012 Anaconda, Inc
+# SPDX-License-Identifier: BSD-3-Clause
+
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 from re import escape
 from collections import OrderedDict
-from itertools import chain
 from logging import getLogger
 import os
 from os.path import dirname, isdir, join
+import subprocess
 import sys
 from tempfile import gettempdir
 from unittest import TestCase
 from uuid import uuid4
 import json
 
+import pytest
+
 from conda import __version__ as conda_version
-from conda import CONDA_PACKAGE_ROOT
-from conda._vendor.auxlib.ish import dals
+from conda import CONDA_PACKAGE_ROOT, CONDA_SOURCE_ROOT
+from conda.auxlib.ish import dals
 from conda._vendor.toolz.itertoolz import concatv
-from conda.activate import CmdExeActivator, CshActivator, FishActivator, PosixActivator, \
-    PowerShellActivator, XonshActivator, activator_map, _build_activator_cls, \
-    main as activate_main, native_path_to_unix
-from conda.base.constants import ROOT_ENV_NAME, PREFIX_STATE_FILE, PACKAGE_ENV_VARS_DIR, \
-    CONDA_ENV_VARS_UNSET_VAR
+from conda.activate import (
+    CmdExeActivator,
+    CshActivator,
+    FishActivator,
+    PosixActivator,
+    PowerShellActivator,
+    XonshActivator,
+    activator_map,
+    _build_activator_cls,
+    native_path_to_unix,
+)
+from conda.base.constants import (
+    ROOT_ENV_NAME,
+    PREFIX_STATE_FILE,
+    PACKAGE_ENV_VARS_DIR,
+    CONDA_ENV_VARS_UNSET_VAR,
+)
 from conda.base.context import context, conda_tests_ctxt_mgmt_def_pol
-from conda.common.compat import ensure_text_type, iteritems, on_win, \
-    string_types
+from conda.cli.main import main_sourced
+from conda.common.compat import ensure_text_type, on_win
 from conda.common.io import captured, env_var, env_vars
 from conda.common.path import which
 from conda.exceptions import EnvironmentLocationNotFound, EnvironmentNameNotFound
 from conda.gateways.disk.create import mkdir_p
 from conda.gateways.disk.delete import rm_rf
 from conda.gateways.disk.update import touch
-import pytest
-from tests.helpers import tempdir
-from tests.test_create import Commands, run_command
-from conda._vendor.auxlib.decorators import memoize
-from .test_create import SPACER_CHARACTER
 
-try:
-    from unittest.mock import patch
-except ImportError:
-    from mock import patch
+from conda.testing.helpers import tempdir
+from conda.testing.integration import Commands, run_command, SPACER_CHARACTER
+from conda.auxlib.decorators import memoize
 
 log = getLogger(__name__)
 
@@ -98,23 +109,28 @@ PKG_B_ENV_VARS = '''
 
 @memoize
 def bash_unsupported_because():
-    bash = which('bash')
-    reason = ''
+    bash = which("bash")
+    reason = ""
     if not bash:
-        reason = 'bash: was not found on PATH'
+        reason = "bash: was not found on PATH"
     elif on_win:
-        from subprocess import check_output
-        output = check_output(bash + ' -c ' + '"uname -v"')
-        if b'Microsoft' in output:
-            reason = 'bash: WSL is not yet supported. Pull requests welcome.'
+        try:
+            output = subprocess.check_output(bash + " -c " + '"uname -v"')
+        except subprocess.CalledProcessError as exc:
+            reason = f"bash: something went wrong while running bash, output:\n{exc.output}\n"
         else:
-            output = check_output(bash + ' --version')
-            if b'msys' not in output and b'cygwin' not in output:
-                reason = 'bash: Only MSYS2 and Cygwin bash are supported on Windows, found:\n{}\n'.format(output)
-            elif bash.startswith(sys.prefix):
-                reason = ('bash: MSYS2 bash installed from m2-bash in prefix {}.\n'
-                          'This is unsupportable due to Git-for-Windows conflicts.\n'
-                          'Please use upstream MSYS2 and have it on PATH.  .'.format(sys.prefix))
+            if b"Microsoft" in output:
+                reason = "bash: WSL is not yet supported. Pull requests welcome."
+            else:
+                output = subprocess.check_output(bash + " --version")
+                if b"msys" not in output and b"cygwin" not in output:
+                    reason = f"bash: Only MSYS2 and Cygwin bash are supported on Windows, found:\n{output}\n"
+                elif bash.startswith(sys.prefix):
+                    reason = (
+                        f"bash: MSYS2 bash installed from m2-bash in prefix {sys.prefix}.\n"
+                        "This is unsupportable due to Git-for-Windows conflicts.\n"
+                        "Please use upstream MSYS2 and have it on PATH.  ."
+                    )
     return reason
 
 
@@ -197,7 +213,7 @@ class ActivatorUnitTests(TestCase):
         assert len(path_dirs) == 5
         test_prefix = '/usr/mytest/prefix'
         added_paths = activator.path_conversion(activator._get_path_dirs(test_prefix))
-        if isinstance(added_paths, string_types):
+        if isinstance(added_paths, str):
             added_paths = added_paths,
 
         new_path = activator._add_prefix_to_path(test_prefix, path_dirs)
@@ -212,7 +228,7 @@ class ActivatorUnitTests(TestCase):
         assert len(path_dirs) == 3
         test_prefix = '/usr/mytest/prefix'
         added_paths = activator.path_conversion(activator._get_path_dirs(test_prefix))
-        if isinstance(added_paths, string_types):
+        if isinstance(added_paths, str):
             added_paths = added_paths,
 
         new_path = activator._add_prefix_to_path(test_prefix, path_dirs)
@@ -253,7 +269,7 @@ class ActivatorUnitTests(TestCase):
         original_path = tuple(activator._get_starting_path_list())
         new_prefix = join(os.getcwd(), 'mytestpath-new')
         new_paths = activator.path_conversion(activator._get_path_dirs(new_prefix))
-        if isinstance(new_paths, string_types):
+        if isinstance(new_paths, str):
             new_paths = new_paths,
         keep_path = activator.path_conversion('/keep/this/path')
         final_path = (keep_path,) + new_paths + original_path
@@ -1134,7 +1150,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.posix'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.posix", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1171,7 +1187,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = PosixActivator()
             with captured() as c:
-                rc = activate_main(['', 'shell.posix'] + reactivate_args)
+                rc = main_sourced("shell.posix", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1194,7 +1210,7 @@ class ShellWrapperUnitTests(TestCase):
             assert reactivate_data == re.sub(r'\n\n+', '\n', e_reactivate_data)
 
             with captured() as c:
-                rc = activate_main(['', 'shell.posix'] + deactivate_args)
+                rc = main_sourced("shell.posix", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1229,7 +1245,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.cmd.exe', 'activate', self.prefix])
+            rc = main_sourced("shell.cmd.exe", "activate", self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_result = c.stdout
@@ -1266,7 +1282,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = CmdExeActivator()
             with captured() as c:
-                assert activate_main(['', 'shell.cmd.exe', 'reactivate']) == 0
+                assert main_sourced("shell.cmd.exe", "reactivate") == 0
             assert not c.stderr
             reactivate_result = c.stdout
 
@@ -1289,7 +1305,7 @@ class ShellWrapperUnitTests(TestCase):
             }
 
             with captured() as c:
-                assert activate_main(['', 'shell.cmd.exe', 'deactivate']) == 0
+                assert main_sourced("shell.cmd.exe", "deactivate") == 0
             assert not c.stderr
             deactivate_result = c.stdout
 
@@ -1318,7 +1334,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.csh'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.csh", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1353,7 +1369,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = CshActivator()
             with captured() as c:
-                rc = activate_main(['', 'shell.csh'] + reactivate_args)
+                rc = main_sourced("shell.csh", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1375,7 +1391,7 @@ class ShellWrapperUnitTests(TestCase):
             }
             assert reactivate_data == e_reactivate_data
             with captured() as c:
-                rc = activate_main(['', 'shell.csh'] + deactivate_args)
+                rc = main_sourced("shell.csh", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1407,7 +1423,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.xonsh'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.xonsh", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1446,7 +1462,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = XonshActivator()
             with captured() as c:
-                rc = activate_main(['', 'shell.xonsh'] + reactivate_args)
+                rc = main_sourced("shell.xonsh", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1475,7 +1491,7 @@ class ShellWrapperUnitTests(TestCase):
             assert reactivate_data == e_reactivate_data
 
             with captured() as c:
-                rc = activate_main(['', 'shell.xonsh'] + deactivate_args)
+                rc = main_sourced("shell.xonsh", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1509,7 +1525,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.fish'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.fish", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1541,7 +1557,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = FishActivator()
             with captured() as c:
-                rc = activate_main(['', 'shell.fish'] + reactivate_args)
+                rc = main_sourced("shell.fish", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1562,7 +1578,7 @@ class ShellWrapperUnitTests(TestCase):
             assert reactivate_data == e_reactivate_data
 
             with captured() as c:
-                rc = activate_main(['', 'shell.fish'] + deactivate_args)
+                rc = main_sourced("shell.fish", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1589,7 +1605,7 @@ class ShellWrapperUnitTests(TestCase):
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.powershell'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.powershell", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1620,7 +1636,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = PowerShellActivator()
             with captured() as c:
-                rc = activate_main(['', 'shell.powershell'] + reactivate_args)
+                rc = main_sourced("shell.powershell", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1640,7 +1656,7 @@ class ShellWrapperUnitTests(TestCase):
             }
 
             with captured() as c:
-                rc = activate_main(['', 'shell.powershell'] + deactivate_args)
+                rc = main_sourced("shell.powershell", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1650,9 +1666,9 @@ class ShellWrapperUnitTests(TestCase):
             assert deactivate_data == dals("""
             $Env:PATH = "%(new_path)s"
             . "%(deactivate1)s"
-            Remove-Item Env:/CONDA_PREFIX
-            Remove-Item Env:/CONDA_DEFAULT_ENV
-            Remove-Item Env:/CONDA_PROMPT_MODIFIER
+            $Env:CONDA_PREFIX = ""
+            $Env:CONDA_DEFAULT_ENV = ""
+            $Env:CONDA_PROMPT_MODIFIER = ""
             $Env:CONDA_SHLVL = "0"
             %(conda_exe_export)s
             """) % {
@@ -1670,14 +1686,14 @@ class ShellWrapperUnitTests(TestCase):
             with tempdir() as td:
                 with open(join(td, "stdout"), "wt") as stdout:
                     with captured(stdout=stdout) as c:
-                        rc = activate_main(['', shell] + activate_args + [self.prefix])
+                        rc = main_sourced(shell, *activate_args, self.prefix)
 
     def test_json_basic(self):
         activator = _build_activator_cls('posix+json')()
         self.make_dot_d_files(activator.script_extension)
 
         with captured() as c:
-            rc = activate_main(['', 'shell.posix+json'] + activate_args + [self.prefix])
+            rc = main_sourced("shell.posix+json", *activate_args, self.prefix)
         assert not c.stderr
         assert rc == 0
         activate_data = c.stdout
@@ -1717,7 +1733,7 @@ class ShellWrapperUnitTests(TestCase):
         }):
             activator = _build_activator_cls('posix+json')()
             with captured() as c:
-                rc = activate_main(['', 'shell.posix+json'] + reactivate_args)
+                rc = main_sourced("shell.posix+json", *reactivate_args)
             assert not c.stderr
             assert rc == 0
             reactivate_data = c.stdout
@@ -1745,7 +1761,7 @@ class ShellWrapperUnitTests(TestCase):
             assert json.loads(reactivate_data) == e_reactivate_data
 
             with captured() as c:
-                rc = activate_main(['', 'shell.posix+json'] + deactivate_args)
+                rc = main_sourced("shell.posix+json", *deactivate_args)
             assert not c.stderr
             assert rc == 0
             deactivate_data = c.stdout
@@ -1776,7 +1792,8 @@ class InteractiveShell(object):
     init_command = None
     print_env_var = None
     from conda.utils import quote_for_shell
-    exe_quoted = quote_for_shell([sys.executable.replace('\\', '/') if on_win else sys.executable])
+
+    exe_quoted = quote_for_shell(sys.executable.replace("\\", "/") if on_win else sys.executable)
     shells = {
         'posix': {
             'activator': 'posix',
@@ -1869,7 +1886,7 @@ class InteractiveShell(object):
         base_shell = self.shells[shell_name].get('base_shell')
         shell_vals = self.shells.get(base_shell, {}).copy()
         shell_vals.update(self.shells[shell_name])
-        for key, value in iteritems(shell_vals):
+        for key, value in shell_vals.items():
             setattr(self, key, value)
         self.activator = activator_map[shell_vals['activator']]()
         self.exit_cmd = self.shells[shell_name].get('exit_cmd', None)
@@ -1881,7 +1898,7 @@ class InteractiveShell(object):
         # this ensures that PATH is shared with any msys2 bash shell, rather than starting fresh
         os.environ["MSYS2_PATH_TYPE"] = "inherit"
         os.environ["CHERE_INVOKING"] = "1"
-        env = {str(k): str(v) for k, v in iteritems(os.environ)}
+        env = {str(k): str(v) for k, v in os.environ.items()}
         remove_these = {var_name for var_name in env if var_name.startswith('CONDA_')}
         for var_name in remove_these:
             del env[var_name]
@@ -1893,10 +1910,17 @@ class InteractiveShell(object):
         shell_found = which(self.shell_name) or self.shell_name
         args = list(self.args) if hasattr(self, 'args') else list()
 
-        p = PopenSpawn(quote_for_shell([shell_found] + args, shell='cmd.exe' if on_win else 'bash'),
-                       timeout=12, maxread=5000, searchwindowsize=None,
-                       logfile=sys.stdout, cwd=os.getcwd(), env=env, encoding='utf-8',
-                       codec_errors='strict')
+        p = PopenSpawn(
+            quote_for_shell(shell_found, *args),
+            timeout=12,
+            maxread=5000,
+            searchwindowsize=None,
+            logfile=sys.stdout,
+            cwd=os.getcwd(),
+            env=env,
+            encoding="utf-8",
+            codec_errors="strict",
+        )
 
         # set state for context
         joiner = os.pathsep.join if self.shell_name == 'fish' else self.activator.pathsep_join
@@ -1906,14 +1930,14 @@ class InteractiveShell(object):
         )))
         self.original_path = PATH
         env = {
-            'CONDA_AUTO_ACTIVATE_BASE': 'false',
-            'PYTHONPATH': self.activator.path_conversion(dirname(CONDA_PACKAGE_ROOT)),
-            'PATH': PATH,
+            "CONDA_AUTO_ACTIVATE_BASE": "false",
+            "PYTHONPATH": self.activator.path_conversion(CONDA_SOURCE_ROOT),
+            "PATH": PATH,
         }
         for ev in ('CONDA_TEST_SAVE_TEMPS', 'CONDA_TEST_TMPDIR', 'CONDA_TEST_USER_ENVIRONMENTS_TXT_FILE'):
             if ev in os.environ: env[ev] = os.environ[ev]
 
-        for name, val in iteritems(env):
+        for name, val in env.items():
             p.sendline(self.activator.export_var_tmpl % (name, val))
 
         if self.init_command:
@@ -2396,8 +2420,8 @@ class ShellWrapperIntegrationTests(TestCase):
             shell.assert_env_var('CONDA_SHLVL', '0\r?')
 
 
-    @pytest.mark.skipif(not which_powershell() or not on_win or sys.version_info[0] == 2,
-                        reason="Windows, Python != 2 (needs dynamic OpenSSL), PowerShell specific test")
+    @pytest.mark.skipif(not which_powershell() or not on_win,
+                        reason="Windows, PowerShell specific test")
     def test_powershell_PATH_management(self):
         posh_kind, posh_path = which_powershell()
         print('## [PowerShell activation PATH management] Using {}.'.format(posh_path))
@@ -2604,44 +2628,46 @@ class ShellWrapperIntegrationTests(TestCase):
             conda_shlvl = shell.get_env_var('CONDA_SHLVL')
             assert conda_shlvl == '0', conda_shlvl
 
+@pytest.fixture(scope="module")
+def prefix():
+    tempdirdir = gettempdir()
+
+    root_dirname = str(uuid4())[:4] + SPACER_CHARACTER + str(uuid4())[:4]
+    root = join(tempdirdir, root_dirname)
+    mkdir_p(join(root, "conda-meta"))
+    assert isdir(root)
+    touch(join(root, "conda-meta", "history"))
+
+    prefix = join(root, "envs", "charizard")
+    mkdir_p(join(prefix, "conda-meta"))
+    touch(join(prefix, "conda-meta", "history"))
+
+    yield prefix
+
+    rm_rf(root)
+
 @pytest.mark.integration
-class ActivationIntegrationTests(TestCase):
+@pytest.mark.parametrize(
+    ["shell"],
+    [
+        pytest.param(
+            "bash",
+            marks=pytest.mark.skipif(bash_unsupported(), reason=bash_unsupported_because()),
+        ),
+        pytest.param(
+            "cmd.exe",
+            marks=pytest.mark.skipif(not which("cmd.exe"), reason="cmd.exe not installed"),
+        ),
+    ],
+)
+def test_activate_deactivate_modify_path(shell, prefix, activate_deactivate_package):
+    original_path = os.environ.get("PATH")
+    run_command(Commands.INSTALL, prefix, activate_deactivate_package, "--use-local")
 
-    def setUp(self):
-        tempdirdir = gettempdir()
+    with InteractiveShell(shell) as sh:
+        sh.sendline('conda activate "%s"' % prefix)
+        activated_env_path = sh.get_env_var("PATH")
+        sh.sendline("conda deactivate")
 
-        prefix_dirname = str(uuid4())[:4] + SPACER_CHARACTER + str(uuid4())[:4]
-        self.prefix = join(tempdirdir, prefix_dirname)
-        mkdir_p(join(self.prefix, 'conda-meta'))
-        assert isdir(self.prefix)
-        touch(join(self.prefix, 'conda-meta', 'history'))
-
-        self.prefix2 = join(self.prefix, 'envs', 'charizard')
-        mkdir_p(join(self.prefix2, 'conda-meta'))
-        touch(join(self.prefix2, 'conda-meta', 'history'))
-
-    def tearDown(self):
-        rm_rf(self.prefix)
-        rm_rf(self.prefix2)
-
-    def activate_deactivate_modify_path(self, shell):
-        activate_deactivate_package = "activate_deactivate_package"
-        activate_deactivate_package_path_string = "teststringfromactivate/bin/test"
-        original_path = os.environ.get("PATH")
-        run_command(Commands.INSTALL, self.prefix2, activate_deactivate_package, "--use-local")
-
-        with InteractiveShell(shell) as shell:
-            shell.sendline('conda activate "%s"' % self.prefix2)
-            activated_env_path = shell.get_env_var("PATH")
-            shell.sendline('conda deactivate')
-
-        assert activate_deactivate_package_path_string in activated_env_path
-        assert original_path == os.environ.get("PATH")
-
-    @pytest.mark.skipif(bash_unsupported(), reason=bash_unsupported_because())
-    def test_activate_deactivate_modify_path_bash(self):
-        self.activate_deactivate_modify_path("bash")
-
-    @pytest.mark.skipif(not which('cmd.exe'), reason='cmd.exe not installed')
-    def test_activate_deactivate_modify_path(self):
-        self.activate_deactivate_modify_path("cmd.exe")
+    assert "teststringfromactivate/bin/test" in activated_env_path
+    assert original_path == os.environ.get("PATH")

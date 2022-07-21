@@ -1,129 +1,83 @@
 # Contributing to Conda
 
-## New Issues
+Thank you for your interest in improving conda! Below, we describe how our
+development process works and how you can be a part of it.
 
-If your issue is a bug report or feature request for:
+*Already know how to contribute and need help setting up your development environment?
+[Read the development environment guide here][development-environment]*
 
-* **a specific conda package**: please file it at <https://github.com/ContinuumIO/anaconda-issues/issues>
-* **anaconda.org**: please file it at <https://anaconda.org/contact/report>
-* **repo.anaconda.com**: please file it at <https://github.com/ContinuumIO/anaconda-issues/issues>
-* **commands under `conda build`**: please file it at <https://github.com/conda/conda-build/issues>
-* **commands under `conda env`**: please file it here!
-* **all other conda commands**: please file it here!
+## Hosted on GitHub
+
+All development currently takes place on [GitHub][github]. This means we make extensive
+use of the project management tools they provide such as [issues](https://github.com/conda/conda/issues)
+and [projects](https://github.com/orgs/conda/projects).
 
 ## Code of Conduct
 
-The conda organization adheres to the [NumFOCUS Code of Conduct](https://www.numfocus.org/code-of-conduct).
-
-## Development Environment
-
-### Bash (e.g. macOS, Linux, Windows)
-
-0. [Signup for a GitHub account][github signup] (if you haven't already)
-   and [install Git on your system][install git].
-
-1. Fork the conda/conda repository to your personal GitHub account by
-   clicking the "Fork" button on https://github.com/conda/conda and then
-   following the instructions GitHub provides.
-
-2. Clone the conda repo you just forked on GitHub to your filesystem anywhere
-   you choose. A special development environment will be set up within the
-   git clone directory below.
-   Set up a new `git remote` to point to both "upstream" (the main conda
-   repo) and your fork repo. For detailed directions, see below.
-
-   2a. Choose where you want the repository located (not a location of an
-       existing conda installation though!), e.g.:
-
-       CONDA_PROJECT_ROOT="$HOME/conda"
-
-   2b. Clone the project, with `upstream` being the main repository.
-       Please replace `your-username` with your actual GitHub username.
-
-       GITHUB_USERNAME=your-username
-       git clone git@github.com:$GITHUB_USERNAME/conda "$CONDA_PROJECT_ROOT"
-       cd "$CONDA_PROJECT_ROOT"
-       git remote add upstream git@github.com:conda/conda
-
-3. Create a local development environment, and activate that environment
-
-       source ./dev/start
-
-   This command will create a project-specific base environment at `./devenv`.
-   If the environment already exists, this command will just quickly activate
-   the already-created `./devenv` environment.
-
-   To be sure that the conda code being interpreted is the code in the project
-   directory, look at the value of `conda location:` in the output of
-   `conda info --all`.
-
-4. Run conda's unit tests using GNU make
-
-       make unit
-
-   or alternately with pytest
-
-       pytest -m "not integration" conda tests
-
-   or you can use pytest to focus on one specific test
-
-       pytest tests/test_create.py -k create_install_update_remove_smoketest
-
-### cmd.exe shell (Windows)
-
-0. [Signup for a GitHub account][github signup] (if you haven't already)
-   and [install Git on your system][install git].
-
-1. Fork the conda/conda repository to your personal GitHub account by
-   clicking the "Fork" button on https://github.com/conda/conda and then
-   following the instructions GitHub provides.
-
-2. Clone the conda repo you just forked on GitHub to your filesystem anywhere
-   you choose. A special development environment will be set up within the
-   git clone directory below.
-   Set up a new `git remote` to point to both "upstream" (the main conda
-   repo) and your fork repo. For detailed directions, see below.
-
-   2a. Choose where you want the repository located (not a location of an
-       existing conda installation though!), e.g.:
-
-       set "CONDA_PROJECT_ROOT=%HOMEPATH%\conda"
-
-   2b. Clone the project, with `upstream` being the main repository.
-       Please replace `your-username` with your actual GitHub username.
-
-       set GITHUB_USERNAME=your-username
-       git clone git@github.com:%GITHUB_USERNAME%/conda "%CONDA_PROJECT_ROOT%"
-       cd "%CONDA_PROJECT_ROOT%"
-       git remote add upstream git@github.com:%GITHUB_USERNAME%/conda
-
-3. Create a local development environment, and activate that environment
-
-       .\dev\start.bat
-
-   This command will create a project-specific base environment at `.\devenv`.
-   If the environment already exists, this command will just quickly activate
-   the already-created `.\devenv` environment.
-
-   To be sure that the conda code being interpreted is the code in the project
-   directory, look at the value of `conda location:` in the output of
-   `conda info --all`.
+When you decide to contribute to this project, it is important to adhere to our
+code of conduct, which is currently the [NumFOCUS Code of Conduct](https://www.numfocus.org/code-of-conduct).
+Please read it carefully.
 
 ## Conda Contributor License Agreement
 
-In case you're new to CLAs, this is rather standard procedure for larger
-projects. [Django](https://www.djangoproject.com/foundation/cla/) and
+To begin contributing to this repository, you need to sign the Conda
+Contributor License Agreement (CLA). In case you're new to CLAs, this
+is a rather standard procedure for larger projects.
+[Django](https://www.djangoproject.com/foundation/cla/) and
 [Python](https://www.python.org/psf/contrib/contrib-form/) for example
 both use similar agreements.
 
-Note: New contributors are required to complete the [Conda Contributor License Agreement][1].
+[Click here to sign the Conda Contributor License Agreement][conda cla].
 
-For pull requests to be merged, contributors to GitHub pull requests need to
-have signed the [Conda Contributor License Agreement][1], so Anaconda, Inc.
-has it on file. A record of prior signatories is kept in a [separate repo in
-conda's GitHub][2] organization.
+A record of prior signatories is kept in a [separate repo in conda's GitHub][clabot] organization.
 
-[1]: https://conda.io/en/latest/contributing.html#conda-contributor-license-agreement
-[2]: https://github.com/conda/clabot-config/blob/master/.clabot
+## Ways to contribute
+
+Below are all the ways you can get involved in with conda.
+
+### Bug reports and feature requests
+
+Bug reports and feature requests are always welcome. To file a new issue,
+[head to the issue form](https://github.com/conda/conda/issues/new/choose).
+
+It should be noted that `conda-build` issues need to be filed separately at
+[its issue tracker](https://github.com/conda/conda-build/issues).
+
+For all other types of issues, please head to [Anaconda.org's "Report a Bug" page][anaconda-bug-report].
+For even more information and documentation on everything related to Anaconda, head to the
+[Support Center at Anaconda Nucleus][anaconda-support].
+
+Before submitting an issue via any of these channels, make sure to document it
+as well as possible and follow the submission guidelines (this makes everyone's job a lot easier!).
+
+### Contributing your changes to conda
+
+Here are the steps you need to take to contribute to conda:
+
+1. [Signup for a GitHub account][github signup] (if you haven't already) and
+   [install Git on your system][install git].
+2. Sign the [Conda Contributor License Agreement][conda cla].
+3. Fork the conda repository to your personal GitHub account by clicking the
+   "Fork" button on [https://github.com/conda/conda](https://github.com/conda/conda) and follow GitHub's
+   instructions.
+4. Work on your proposed solution. [Visit this page if you need help getting your development environment setup][development-environment]
+5. When you are ready to submit a change, create a new pull request so that we can merge your changes to our repository.
+
+### Issue triaging
+
+Issue triaging is how we filter incoming issues and get them ready for active development.
+To see how this process works for this project, read "[The Triaging Process at conda][triaging]".
+
+*The project maintainers are currently not seeking help with issue triaging, but this may change in the future*
+
+
+[conda cla]: https://conda.io/en/latest/contributing.html#conda-contributor-license-agreement
+[clabot]: https://github.com/conda/infra/blob/main/.clabot
 [install git]: https://git-scm.com/book/en/v2/Getting-Started-Installing-Git
 [github signup]: https://github.com/signup
+[github]: https://github.com/
+[anaconda-issues]: https://github.com/ContinuumIO/anaconda-issues/issues
+[anaconda-support]: https://anaconda.cloud/support-center
+[anaconda-bug-report]: https://anaconda.org/contact/report
+[triaging]: https://github.com/conda/infra/blob/main/TRIAGING.md
+[development-environment]: https://docs.conda.io/projects/conda/en/latest/dev-guide/development-environment.html

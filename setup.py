@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (C) 2012 Anaconda, Inc
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -6,16 +7,18 @@ import sys
 
 from setuptools import setup
 
-if not sys.version_info[:2] >= (3, 6):
-    sys.exit("conda is only meant for Python 3.6 and up.  "
-             "current version: %d.%d" % sys.version_info[:2])
+if not sys.version_info[:2] >= (3, 7):
+    sys.exit(
+        f"conda is only meant for Python 3.7 and up. "
+        f"current version: {sys.version_info.major}.{sys.version_info.minor}"
+    )
 
 
 # When executing setup.py, we need to be able to import ourselves, this
 # means that we need to add the src directory to the sys.path.
 src_dir = here = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, src_dir)
-import conda._vendor.auxlib.packaging  # NOQA
+import conda.auxlib.packaging
 
 long_description = """
 .. image:: https://s3.amazonaws.com/conda-dev/conda_logo.svg
@@ -33,14 +36,9 @@ source.
 install_requires = [
     "pycosat >=0.6.3",
     "requests >=2.12.4",
+    "ruamel_yaml_conda >=0.11.14",
     "menuinst ; platform_system=='Windows'",
 ]
-
-if os.getenv('CONDA_BUILD', None) == '1':
-    install_requires.append("ruamel_yaml_conda >=0.11.14")
-else:
-    install_requires.append("ruamel_yaml_conda >=0.11.14")
-
 
 def package_files(*root_directories):
     return [
@@ -65,24 +63,20 @@ setup(
         "Intended Audience :: Developers",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
-    packages=conda._vendor.auxlib.packaging.find_packages(exclude=(
-        "tests",
-        "tests.*",
-        "build",
-        "utils",
-        ".tox"
-    )),
+    packages=conda.auxlib.packaging.find_packages(
+        exclude=("tests", "tests.*", "build", "utils", ".tox")
+    ),
     package_data={
         '': package_files('conda/shell') + ['LICENSE'],
     },
     cmdclass={
-        'build_py': conda._vendor.auxlib.packaging.BuildPyCommand,
-        'sdist': conda._vendor.auxlib.packaging.SDistCommand,
+        "build_py": conda.auxlib.packaging.BuildPyCommand,
+        "sdist": conda.auxlib.packaging.SDistCommand,
     },
     entry_points={
         'console_scripts': [
@@ -90,6 +84,6 @@ setup(
         ],
     },
     install_requires=install_requires,
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     zip_safe=False,
 )

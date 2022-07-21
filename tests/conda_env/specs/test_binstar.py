@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2012 Anaconda, Inc
+# SPDX-License-Identifier: BSD-3-Clause
+
 import types
 import unittest
 try:
@@ -26,7 +30,7 @@ class TestBinstarSpec(unittest.TestCase):
     def test_invalid_name(self):
         spec = BinstarSpec(name='invalid-name')
         self.assertEqual(spec.can_handle(), False)
-        self.assertEqual(spec.msg, "Invalid name, try the format: user/package")
+        self.assertEqual(spec.msg, "Invalid name 'invalid-name', try the format: user/package")
 
     def test_package_not_exist(self):
         with patch('conda_env.specs.binstar.get_binstar') as get_binstar_mock:

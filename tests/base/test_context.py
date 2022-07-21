@@ -1,26 +1,36 @@
 # -*- coding: utf-8 -*-
+# Copyright (C) 2012 Anaconda, Inc
+# SPDX-License-Identifier: BSD-3-Clause
+
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 from itertools import chain
 import os
 from os.path import join, abspath
+from pathlib import Path
 from tempfile import gettempdir
-from unittest import TestCase
+from unittest import TestCase, mock
 
 import pytest
 
-from conda._vendor.auxlib.collection import AttrDict
-from conda._vendor.auxlib.ish import dals
+from conda.auxlib.collection import AttrDict
+from conda.auxlib.ish import dals
 from conda._vendor.toolz.itertoolz import concat
 from conda.base.constants import PathConflict, ChannelPriority
-from conda.base.context import context, reset_context, conda_tests_ctxt_mgmt_def_pol
-from conda.common.compat import odict, iteritems
+from conda.base.context import (
+    context,
+    reset_context,
+    conda_tests_ctxt_mgmt_def_pol,
+    validate_prefix_name,
+)
+from conda.common.compat import odict, on_win
 from conda.common.configuration import ValidationError, YamlRawParameter
 from conda.common.io import env_var, env_vars
 from conda.common.path import expand, win_path_backout
 from conda.common.url import join_url, path_to_url
 from conda.common.serialize import yaml_round_trip_load
 from conda.core.package_cache_data import PackageCacheData
+from conda.exceptions import EnvironmentNameNotFound, CondaValueError
 from conda.gateways.disk.create import mkdir_p, create_package_cache_directory
 from conda.gateways.disk.delete import rm_rf
 from conda.gateways.disk.permissions import make_read_only
@@ -29,7 +39,7 @@ from conda.models.channel import Channel
 from conda.models.match_spec import MatchSpec
 from conda.utils import on_win
 
-from ..helpers import tempdir
+from conda.testing.helpers import tempdir
 
 
 class ContextCustomRcTests(TestCase):
@@ -225,7 +235,7 @@ class ContextCustomRcTests(TestCase):
     def test_context_parameters_have_descriptions(self):
         skip_categories = ('CLI-only', 'Hidden and Undocumented')
         documented_parameter_names = chain.from_iterable((
-            parameter_names for category, parameter_names in iteritems(context.category_map)
+            parameter_names for category, parameter_names in context.category_map.items()
             if category not in skip_categories
         ))
 
@@ -401,7 +411,7 @@ class ContextCustomRcTests(TestCase):
         """
         When the channel have been specified in condarc, these channels
         should be used along with the one specified
-        
+
         In this test, the given channel in cli is the same as in condarc
         'defaults' should not be added
         See https://github.com/conda/conda/issues/10732
@@ -413,6 +423,57 @@ class ContextCustomRcTests(TestCase):
         rd = odict(testdata=YamlRawParameter.make_raw_parameters('testdata', yaml_round_trip_load(string)))
         context._set_raw_data(rd)
         assert context.channels == ('conda-forge',)
+
+    def test_expandvars(self):
+        """
+        Environment variables should be expanded in settings that have expandvars=True.
+        """
+        def _get_expandvars_context(attr, config_expr, env_value):
+            with mock.patch.dict(os.environ, {"TEST_VAR": env_value}):
+                reset_context(())
+                string = f"{attr}: {config_expr}"
+                rd = odict(testdata=YamlRawParameter.make_raw_parameters('testdata', yaml_round_trip_load(string)))
+                context._set_raw_data(rd)
+                return getattr(context, attr)
+
+        ssl_verify = _get_expandvars_context("ssl_verify", "${TEST_VAR}", "yes")
+        assert ssl_verify
+
+        for attr, env_value in [
+            ("client_ssl_cert", "foo"),
+            ("client_ssl_cert_key", "foo"),
+            ("channel_alias", "http://foo"),
+        ]:
+            value = _get_expandvars_context(attr, "${TEST_VAR}", env_value)
+            assert value == env_value
+
+        for attr in [
+            "migrated_custom_channels",
+            "proxy_servers",
+        ]:
+            value = _get_expandvars_context("proxy_servers", "{'x': '${TEST_VAR}'}", "foo")
+            assert value == {"x": "foo"}
+
+        for attr in [
+            "channels",
+            "default_channels",
+            "whitelist_channels",
+        ]:
+            value = _get_expandvars_context(attr, "['${TEST_VAR}']", "foo")
+            assert value == ("foo",)
+
+        custom_channels = _get_expandvars_context("custom_channels", "{'x': '${TEST_VAR}'}", "http://foo")
+        assert custom_channels["x"].location == "foo"
+
+        custom_multichannels = _get_expandvars_context("custom_multichannels", "{'x': ['${TEST_VAR}']}", "http://foo")
+        assert len(custom_multichannels["x"]) == 1
+        assert custom_multichannels["x"][0].location == "foo"
+
+        envs_dirs = _get_expandvars_context("envs_dirs", "['${TEST_VAR}']", "/foo")
+        assert any("foo" in d for d in envs_dirs)
+
+        pkgs_dirs = _get_expandvars_context("pkgs_dirs", "['${TEST_VAR}']", "/foo")
+        assert any("foo" in d for d in pkgs_dirs)
 
 
 class ContextDefaultRcTests(TestCase):
@@ -429,3 +490,60 @@ class ContextDefaultRcTests(TestCase):
             assert context.local_build_root == join(context.root_prefix, 'conda-bld')
         else:
             assert context.local_build_root == expand('~/conda-bld')
+
+
+if on_win:
+    VALIDATE_PREFIX_NAME_BASE_DIR = Path("C:\\Users\\name\\prefix_dir\\")
+else:
+    VALIDATE_PREFIX_NAME_BASE_DIR = Path("/home/user/prefix_dir/")
+
+VALIDATE_PREFIX_ENV_NAME = "env-name"
+
+VALIDATE_PREFIX_TEST_CASES = (
+    # First scenario which triggers an Environment not found error
+    (
+        VALIDATE_PREFIX_ENV_NAME,
+        False,
+        (VALIDATE_PREFIX_NAME_BASE_DIR, EnvironmentNameNotFound(VALIDATE_PREFIX_ENV_NAME)),
+        VALIDATE_PREFIX_NAME_BASE_DIR.joinpath(VALIDATE_PREFIX_ENV_NAME),
+    ),
+    # Passing in not allowed characters as the prefix name
+    (
+        "not/allow#characters:in-path",
+        False,
+        (None, None),
+        CondaValueError("Invalid environment name"),
+    ),
+    # Passing in not allowed characters as the prefix name
+    (
+        "base",
+        False,
+        (None, None),
+        CondaValueError("Use of 'base' as environment name is not allowed here."),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "prefix,allow_base,mock_return_values,expected", VALIDATE_PREFIX_TEST_CASES
+)
+def test_validate_prefix_name(prefix, allow_base, mock_return_values, expected):
+    ctx = mock.MagicMock()
+
+    with mock.patch("conda.base.context._first_writable_envs_dir") as mock_one, mock.patch(
+        "conda.base.context.locate_prefix_by_name"
+    ) as mock_two:
+
+        mock_one.side_effect = [mock_return_values[0]]
+        mock_two.side_effect = [mock_return_values[1]]
+
+        if isinstance(expected, CondaValueError):
+            with pytest.raises(CondaValueError) as exc:
+                validate_prefix_name(prefix, ctx, allow_base=allow_base)
+
+            # We fuzzy match the error message here. Doing this exactly is not important
+            assert str(expected) in str(exc)
+
+        else:
+            actual = validate_prefix_name(prefix, ctx, allow_base=allow_base)
+            assert actual == str(expected)
