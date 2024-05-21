@@ -1,6 +1,6 @@
 menuinst; sys_platform == 'win32'
 pycosat; sys_platform != 'win32'
-requests>=2.14.2
+requests>=2.32.0
 ruamel.yaml
 sphinx
 sphinx-autobuild
